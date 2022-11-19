@@ -7,9 +7,13 @@ from shutil import move, rmtree
 # For loading eeg, indecies and features.
 import glob, mne
 import scipy.io
+from utils import train_valid_test_split
+from sklearn.model_selection import train_test_split
 
 # For preprocessing.
 from scipy import signal as sig
+import numpy as np
+from sklearn.preprocessing import StandardScaler
 
 # For saving the EEG trials.
 import pandas as pd
@@ -139,6 +143,13 @@ class Database(object):
         # Butterworth filter the EEG signal.
         eeg = self._butterworth_filter_eeg(eeg)
 
+        # ICA component analysis
+        eeg.filter(l_freq=1, h_freq=None)
+        ica = mne.preprocessing.ICA(n_components = 20, random_state=100)
+        ica.fit(eeg)
+        ica.apply(eeg)
+        #ica.plot_components()
+
         # Plot the filtered EEG.
         self._plot_eeg(participant, eeg, "filtered_eeg")
         
@@ -178,15 +189,20 @@ class Database(object):
  
     def _save_eeg_trials(self, eeg, indecies, output_dir):
         """
-        
-        Input:
-
         """
+        maxlen = 0
+        for index_pair in indecies:
+            sample_start, sample_end = index_pair[0][0], index_pair[0][1]
+            eeg_trial = eeg.get_data("all", sample_start, sample_end)
+            maxlen = max(maxlen, eeg_trial.shape[1])
+
         i = 0
         for index_pair in indecies:
             sample_start, sample_end = index_pair[0][0], index_pair[0][1]
             eeg_trial = eeg.get_data("all", sample_start, sample_end)
-            pd.DataFrame(eeg_trial).to_csv(os.path.join(output_dir, f"{i}.csv"), header=False)
+            if maxlen - eeg_trial.shape[1] > 0:
+                eeg_trial = np.append(eeg_trial, np.zeros((eeg_trial.shape[0], maxlen - eeg_trial.shape[1])), axis = 1)
+            pd.DataFrame(data=eeg_trial).to_csv(os.path.join(output_dir, f"{i}.csv"), header=True, index=False)
             i+=1
 
     def _plot_eeg(self, participant, eeg, plot_name):
@@ -240,7 +256,7 @@ class Database(object):
                 eeg[idx] = sig.filtfilt(b, a, eeg_vector)
         return eeg
 
-    def load_eeg_trials(self, participant, eeg_type):
+    def _load_eeg_trials(self, participant, eeg_type):
         """
         Loads the participant's specific (thinking/speaking) EEG trials into memory and returns it.
 
@@ -251,32 +267,49 @@ class Database(object):
         Input
         -----
         participant: The participant's ID. E.g.: "MM05"
-        eeg_type: "thinking" or "speaking"
+        eeg_type: "thinking" | "speaking" | "mixed" | "concatenated"
 
-        Returns
+        Returns - List of panda dataframes.
         -------
-        eeg_trials: The loaded eeg_trials.
+        eeg_trials: The loaded eeg_trials as a list.
+        if eeg_type is:
+            "thinking": Loads the thinking eeg trials.
+            "speaking": Loads the speaking eeg trials.
+            "mixed": Loads the thinking and speaking eeg trials. The eeg trials returns as [thinking, speaking].
+            "concat": Loads the thinking and speaking eeg trials.
 
         Raise
         -----
         ValueError: if the eeg_type is not thinking or speaking.
 
         """
-        if not eeg_type == "thinking" and not eeg_type == "speaking":
-            raise ValueError("eeg_type must be  thinking  or  speaking")
+        if not eeg_type == "thinking" and not eeg_type == "speaking" and not eeg_type == "mixed" and not eeg_type == "concat":
+            raise ValueError("eeg_type bad value")
 
-        DATA_DIR = self.PARTICIPANT_DATA_DIR(participant)
-        DATA_DIR = os.path.join(DATA_DIR, "SPEAKING") if eeg_type == "speaking" else os.path.join(DATA_DIR, "THINKING")
+        if eeg_type == "thinking" or eeg_type == "speaking":
+            DATA_DIR = self.PARTICIPANT_DATA_DIR(participant)
+            DATA_DIR = os.path.join(DATA_DIR, "SPEAKING") if eeg_type == "speaking" else os.path.join(DATA_DIR, "THINKING")
 
-        #Load trials.
-        i = 0
-        eeg_trials = []
-        while os.path.exists( os.path.join(DATA_DIR, f"{i}.csv")):
-            eeg_trials.append(pd.read_csv(os.path.join(DATA_DIR, f"{i}.csv")))
-            i+=1
-        return eeg_trials
+            #Load trials.
+            i = 0
+            eeg_trials = []
+            while os.path.exists( os.path.join(DATA_DIR, f"{i}.csv")):
+                eeg_trials.append(pd.read_csv(os.path.join(DATA_DIR, f"{i}.csv")).to_numpy())
+                i+=1
+            return eeg_trials
+        elif eeg_type == "mixed":
+            eeg_trials = self.load_eeg_trials(participant, "thinking")
+            eeg_trials.append(self.load_eeg_trials(participant, "speaking"))
+            return eeg_trials
+        elif eeg_type == "concat":
+            eeg_trials_thinking = self.load_eeg_trials(participant, "thinking")
+            eeg_trials_speaking = self.load_eeg_trials(participant, "speaking")
+            eeg_trials = []
+            for trial in zip(eeg_trials_thinking, eeg_trials_speaking):
+                eeg_trials.append(np.append(trial[0], trial[1], axis=1))
+            return eeg_trials
 
-    def load_labels(self, participant):
+    def _load_labels(self, participant, eeg_type):
         """
         Loads the participant's label for each trial in order. The last label is not returned because the last trial is not valid.
 
@@ -288,10 +321,14 @@ class Database(object):
         Input
         -----
         participant: The participant's ID. E.g.: "MM05"
+        eeg_type: "thinking" | "speaking" | "mixed" | "concat"
 
         Returns
         -------
         Y: The participant's valid labels.
+        if eeg_type is:
+            "thinking" | "speaking" | "concat" : Loads the labels.
+            "mixed": Loads the labels twice.
         """
         # Path to labels.txt.
         LABELS_PATH = os.path.join(self.PARTICIPANT_DIR(participant), "kinect_data", "labels.txt")
@@ -300,4 +337,51 @@ class Database(object):
         Y = []
         with open(LABELS_PATH, "rt") as file:
             Y = [line.strip() for line in file.readlines()]
-        return Y[:-1]
+        Y = Y[:-1]
+        if eeg_type == "mixed":
+            return Y+Y
+        return Y
+
+    def load_data(self, participant, train_eeg_type, test_eeg_type, train_size = 0.8, test_size = 0.1):
+        """
+        Loads the participant's specific (thinking/speaking) EEG trials into memory and returns it.
+
+        Note
+        ----
+        Only usable if _save_eeg_trials() has been called without errors so the .csv files are ready to be read.
+
+        Input
+        -----
+        participant: The participant's ID. E.g.: "MM05"
+        eeg_type: "thinking" | "speaking" | "mixed" | "concat"
+
+        Returns - List of panda dataframes.
+        -------
+        eeg_trials: The loaded eeg_trials as a list.
+        if eeg_type is:
+            "thinking": Loads the thinking eeg trials.
+            "speaking": Loads the speaking eeg trials.
+            "mixed": Loads the thinking and speaking eeg trials. The eeg trials returns as [thinking, speaking].
+            "concat": Loads the thinking and speaking eeg trials in a concatenated form.
+
+        Raise
+        -----
+        ValueError: if the eeg_type is not thinking or speaking.
+
+        """
+        if train_eeg_type != test_eeg_type and (train_eeg_type == "concat" or test_eeg_type == "concat" or train_eeg_type == "mixed" or test_eeg_type == "mixed" ):
+            raise ValueError("Rossz input! A train és test típusok nem hasonlóak.")
+
+        if train_eeg_type == test_eeg_type:
+            X = self._load_eeg_trials(participant, train_eeg_type)
+            Y = self._load_labels(participant, train_eeg_type)
+            return train_valid_test_split(X, Y, train_size, test_size)
+        else:
+            X_train = self._load_eeg_trials(participant, train_eeg_type)
+            Y_train = self._load_labels(participant)
+            
+            X = self._load_eeg_trials(participant, test_eeg_type)
+            Y = self._load_labels(participant)
+
+            X_valid, X_test, Y_valid, Y_test = train_test_split(X,Y, test_size=0.5)
+            return X_train, X_valid, X_test, Y_train, Y_valid, Y_test

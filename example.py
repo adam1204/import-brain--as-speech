@@ -24,9 +24,13 @@ db.preprocess_eeg("MM05")
 db.initialize("MM08")
 
 # Prepare data for training.
-X = db.load_eeg_trials("MM05", "thinking")
-Y = db.load_labels("MM05")
-X_train, X_valid, X_test, Y_train, Y_valid, Y_test = train_valid_test_split(X,Y,train_size = 0.8, test_size = 0.1)
+X_train, X_valid, X_test, Y_train, Y_valid, Y_test = db.load_data("MM05","thinking", "thinking")
+#X_train, X_valid, X_test, Y_train, Y_valid, Y_test = db.load_data("MM05","speaking", "speaking")
+#X_train, X_valid, X_test, Y_train, Y_valid, Y_test = db.load_data("MM05","mixed", "mixed")
+#X_train, X_valid, X_test, Y_train, Y_valid, Y_test = db.load_data("MM05","concat", "concat")
+
+#X_train, X_valid, X_test, Y_train, Y_valid, Y_test = db.load_data("MM05","thinking", "speaking")
+#X_train, X_valid, X_test, Y_train, Y_valid, Y_test = db.load_data("MM05","speaking", "thinking")
 
 print(X_train[0])
 print(Y_train[0])

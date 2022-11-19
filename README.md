@@ -18,7 +18,6 @@ We use the KaraOne dataset to achive the mentioned goals. This contains two type
 
 ## File functions and running options.
 ### Files
-example.py: Demonstrates the implemented functions, how we get a ready dataset with a few lines of code.
 
 database.py: Implements the database via the Database class.
 

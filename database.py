@@ -298,12 +298,12 @@ class Database(object):
                 i+=1
             return eeg_trials
         elif eeg_type == "mixed":
-            eeg_trials = self.load_eeg_trials(participant, "thinking")
-            eeg_trials.append(self.load_eeg_trials(participant, "speaking"))
+            eeg_trials = self._load_eeg_trials(participant, "thinking")
+            eeg_trials.append(self._load_eeg_trials(participant, "speaking"))
             return eeg_trials
         elif eeg_type == "concat":
-            eeg_trials_thinking = self.load_eeg_trials(participant, "thinking")
-            eeg_trials_speaking = self.load_eeg_trials(participant, "speaking")
+            eeg_trials_thinking = self._load_eeg_trials(participant, "thinking")
+            eeg_trials_speaking = self._load_eeg_trials(participant, "speaking")
             eeg_trials = []
             for trial in zip(eeg_trials_thinking, eeg_trials_speaking):
                 eeg_trials.append(np.append(trial[0], trial[1], axis=1))
@@ -378,10 +378,10 @@ class Database(object):
             return train_valid_test_split(X, Y, train_size, test_size)
         else:
             X_train = self._load_eeg_trials(participant, train_eeg_type)
-            Y_train = self._load_labels(participant)
+            Y_train = self._load_labels(participant, train_eeg_type)
             
             X = self._load_eeg_trials(participant, test_eeg_type)
-            Y = self._load_labels(participant)
+            Y = self._load_labels(participant, test_eeg_type)
 
             X_valid, X_test, Y_valid, Y_test = train_test_split(X,Y, test_size=0.5)
             return X_train, X_valid, X_test, Y_train, Y_valid, Y_test
